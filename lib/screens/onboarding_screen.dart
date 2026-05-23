@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../data/cities.dart';
 import '../theme/app_colors.dart';
 import '../models/user_profile.dart';
 import '../services/storage_service.dart';
+import '../widgets/city_picker.dart';
 import 'home_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -34,6 +36,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   double? _latitude;
   double? _longitude;
   String _locationName = '';
+  City? _selectedCity;
   String _gender = '';
 
   bool _locationLoading = false;
@@ -440,12 +443,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         desiredAccuracy: LocationAccuracy.medium,
       );
       if (!mounted) return;
+      // Map the GPS fix to the nearest known city so the user
+      // sees a friendly name and we still send accurate coords.
+      final nearest = CityDatabase.nearest(
+        position.latitude,
+        position.longitude,
+      );
       setState(() {
-        _latitude = position.latitude;
-        _longitude = position.longitude;
-        _locationName = _locationName.isEmpty
-            ? 'Lat: ${position.latitude.toStringAsFixed(5)}, Lon: ${position.longitude.toStringAsFixed(5)}'
-            : _locationName;
+        if (nearest != null) {
+          _selectedCity = nearest;
+          _latitude = nearest.latitude;
+          _longitude = nearest.longitude;
+          _locationName = nearest.displayName;
+        } else {
+          _latitude = position.latitude;
+          _longitude = position.longitude;
+          _locationName =
+              'Lat: ${position.latitude.toStringAsFixed(5)}, Lon: ${position.longitude.toStringAsFixed(5)}';
+        }
         _locationLoading = false;
         _locationError = null;
       });
@@ -465,18 +480,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Your birth place coordinates help us calculate your exact kundali. Allow access to use your current location or skip to enter later.',
+            'Pick the city you were born in. The exact coordinates make your Rahu, Ketu and ascendant placements accurate.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: AppColors.unselectedDark,
               height: 1.4,
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 24),
           Center(
             child: Container(
-              width: 140,
-              height: 140,
+              width: 120,
+              height: 120,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 boxShadow: [
@@ -493,70 +508,123 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 color: AppColors.cardDark.withOpacity(0.6),
               ),
               child: Icon(
-                Icons.location_on_rounded,
-                size: 64,
-                color: AppColors.accentViolet.withOpacity(0.8),
+                Icons.location_city_rounded,
+                size: 56,
+                color: AppColors.accentViolet.withOpacity(0.85),
               ),
             ),
           ),
           const SizedBox(height: 24),
-          if (_locationError != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Text(
-                _locationError!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.orange.shade300,
+          CityPicker(
+            initialCity: _selectedCity,
+            initialText: _selectedCity == null ? _locationName : null,
+            onSelected: (city) {
+              setState(() {
+                _selectedCity = city;
+                _latitude = city.latitude;
+                _longitude = city.longitude;
+                _locationName = city.displayName;
+                _locationError = null;
+              });
+            },
+            onCleared: () {
+              setState(() {
+                _selectedCity = null;
+                _latitude = null;
+                _longitude = null;
+                _locationName = '';
+              });
+            },
+          ),
+          if (_selectedCity != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.accentViolet.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.accentViolet.withOpacity(0.3),
                 ),
-                textAlign: TextAlign.center,
               ),
-            ),
-          if (_latitude != null && _longitude != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.cardDark,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.inputBorderDark),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      'Location saved',
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: AppColors.accentViolet,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${_latitude!.toStringAsFixed(5)}, ${_longitude!.toStringAsFixed(5)}',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onBackground,
+              child: Row(
+                children: [
+                  Icon(Icons.check_circle_rounded,
+                      size: 18, color: AppColors.accentViolet),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '${_selectedCity!.latitude.toStringAsFixed(3)}°, '
+                      '${_selectedCity!.longitude.toStringAsFixed(3)}°',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onBackground.withOpacity(0.85),
                         fontFamily: 'monospace',
                       ),
-                      textAlign: TextAlign.center,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
+          ],
+          if (_locationError != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _locationError!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: Colors.orange.shade300,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Divider(
+                  color: AppColors.borderDark,
+                  endIndent: 12,
+                ),
+              ),
+              Text(
+                'or',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppColors.unselectedDark,
+                ),
+              ),
+              Expanded(
+                child: Divider(
+                  color: AppColors.borderDark,
+                  indent: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton.icon(
+            child: OutlinedButton.icon(
               onPressed: _locationLoading ? null : _requestLocation,
               icon: _locationLoading
                   ? const SizedBox(
-                      width: 20,
-                      height: 20,
+                      width: 18,
+                      height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.my_location_rounded),
               label: Text(_locationLoading
-                  ? 'Getting location…'
-                  : 'Allow location access'),
+                  ? 'Detecting…'
+                  : 'Use my current location'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.accentViolet,
+                side: BorderSide(
+                  color: AppColors.accentViolet.withOpacity(0.5),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
             ),
           ),
         ],
