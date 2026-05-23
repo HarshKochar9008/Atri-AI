@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../data/cities.dart';
 import '../services/prokerala_api.dart';
 import '../models/prokerala_kundli_summary.dart';
+import '../widgets/city_picker.dart';
 import 'chart_display_screen.dart';
 import '../services/storage_service.dart';
 import '../theme/app_colors.dart';
@@ -17,12 +19,13 @@ class _InputScreenState extends State<InputScreen> {
   final _formKey = GlobalKey<FormState>();
   final _dateController = TextEditingController();
   final _timeController = TextEditingController();
-  final _latitudeController = TextEditingController();
-  final _longitudeController = TextEditingController();
-  final _locationController = TextEditingController();
 
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
+  City? _selectedCity;
+  String _locationName = '';
+  double? _latitude;
+  double? _longitude;
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -36,9 +39,6 @@ class _InputScreenState extends State<InputScreen> {
   void dispose() {
     _dateController.dispose();
     _timeController.dispose();
-    _latitudeController.dispose();
-    _longitudeController.dispose();
-    _locationController.dispose();
     super.dispose();
   }
 
@@ -59,14 +59,25 @@ class _InputScreenState extends State<InputScreen> {
       _timeController.text =
           '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
     }
-    if (profile.latitude != null) {
-      _latitudeController.text = profile.latitude!.toString();
-    }
-    if (profile.longitude != null) {
-      _longitudeController.text = profile.longitude!.toString();
-    }
-    if (profile.locationName.isNotEmpty) {
-      _locationController.text = profile.locationName;
+    _latitude = profile.latitude;
+    _longitude = profile.longitude;
+    _locationName = profile.locationName;
+
+    // Try to resolve the saved profile location back to a known city.
+    if (_latitude != null && _longitude != null) {
+      final nearest =
+          CityDatabase.nearest(_latitude!, _longitude!);
+      if (nearest != null) {
+        // Only adopt the city name if the saved location is very close
+        // (within ~5km) — otherwise keep the user's original name.
+        // Distance check via the same lat/long the picker stores.
+        _selectedCity = nearest;
+        if (_locationName.isEmpty ||
+            _locationName.startsWith('Lat:') ||
+            _locationName.toLowerCase() == nearest.name.toLowerCase()) {
+          _locationName = nearest.displayName;
+        }
+      }
     }
     setState(() {});
   }
@@ -118,34 +129,6 @@ class _InputScreenState extends State<InputScreen> {
     return null;
   }
 
-  String? _validateLatitude(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'Please enter latitude';
-    }
-    final lat = double.tryParse(value);
-    if (lat == null) {
-      return 'Please enter a valid number';
-    }
-    if (lat < -90 || lat > 90) {
-      return 'Latitude must be between -90 and 90';
-    }
-    return null;
-  }
-
-  String? _validateLongitude(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'Please enter longitude';
-    }
-    final lon = double.tryParse(value);
-    if (lon == null) {
-      return 'Please enter a valid number';
-    }
-    if (lon < -180 || lon > 180) {
-      return 'Longitude must be between -180 and 180';
-    }
-    return null;
-  }
-
   Future<void> _fetchKundali() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -158,14 +141,21 @@ class _InputScreenState extends State<InputScreen> {
       return;
     }
 
+    if (_latitude == null || _longitude == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please pick your birth city')),
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final lat = double.parse(_latitudeController.text);
-      final lon = double.parse(_longitudeController.text);
+      final lat = _latitude!;
+      final lon = _longitude!;
 
       final birthDateTime = DateTime(
         _selectedDate!.year,
@@ -188,9 +178,9 @@ class _InputScreenState extends State<InputScreen> {
       final kundaliData = ProkeralaApi.toKundaliData(prokeralaRaw);
 
       // Auto-save to history
-      final location = _locationController.text.isEmpty
+      final location = _locationName.isEmpty
           ? 'Lat: $lat, Lon: $lon'
-          : _locationController.text;
+          : _locationName;
       await StorageService.saveKundali(
         kundaliData,
         birthDateTime,
@@ -291,42 +281,52 @@ class _InputScreenState extends State<InputScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              _buildInput(
-                context: context,
-                controller: _latitudeController,
-                label: 'Latitude',
-                icon: Icons.location_on_outlined,
-                hintText: 'e.g. 28.5355',
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                validator: _validateLatitude,
+              CityPicker(
+                initialCity: _selectedCity,
+                initialText:
+                    _selectedCity == null ? _locationName : null,
+                onSelected: (city) {
+                  setState(() {
+                    _selectedCity = city;
+                    _latitude = city.latitude;
+                    _longitude = city.longitude;
+                    _locationName = city.displayName;
+                  });
+                },
+                onCleared: () {
+                  setState(() {
+                    _selectedCity = null;
+                    _latitude = null;
+                    _longitude = null;
+                    _locationName = '';
+                  });
+                },
               ),
-              const SizedBox(height: 14),
-              _buildInput(
-                context: context,
-                controller: _longitudeController,
-                label: 'Longitude',
-                icon: Icons.location_on_outlined,
-                hintText: 'e.g. 77.2090',
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                validator: _validateLongitude,
-              ),
-              const SizedBox(height: 14),
-              _buildInput(
-                context: context,
-                controller: _locationController,
-                label: 'Location (Optional)',
-                hintText: 'e.g. New Delhi, India',
-                dropdownItems: const [
-                  'New Delhi, India',
-                  'Mumbai, India',
-                  'Bangalore, India',
-                  'Chennai, India',
-                  'Hyderabad, India',
-                  'Kolkata, India',
-                  'Pune, India',
-                ],
-                icon: Icons.place_outlined,
-              ),
+              if (_selectedCity != null) ...[
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Row(
+                    children: [
+                      Icon(Icons.check_circle_rounded,
+                          size: 16, color: AppColors.accentViolet),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Coordinates: '
+                          '${_selectedCity!.latitude.toStringAsFixed(3)}°, '
+                          '${_selectedCity!.longitude.toStringAsFixed(3)}°',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontFamily: 'monospace',
+                            color: AppColors.unselectedDark,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 36),
               SizedBox(
                 height: 52,
@@ -421,68 +421,50 @@ class _InputScreenState extends State<InputScreen> {
     VoidCallback? onTap,
     String? Function(String?)? validator,
     TextInputType? keyboardType,
-    List<String>? dropdownItems,
-    String? selectedDropdownItem,
-    void Function(String?)? onDropdownChanged,
   }) {
     final theme = Theme.of(context);
-    return Column(
-      children: [
-        TextFormField(
-          controller: controller,
-          readOnly: readOnly,
-          onTap: onTap,
-          validator: validator,
-          keyboardType: keyboardType,
-          style: theme.textTheme.bodyLarge?.copyWith(
-            color: Colors.white,
-          ),
-          decoration: InputDecoration(
-            labelText: label,
-            hintText: hintText,
-            hintStyle: TextStyle(color: AppColors.unselectedDark.withOpacity(0.8)),
-            labelStyle: TextStyle(color: AppColors.unselectedDark),
-            prefixIcon: Icon(
-              icon,
-              color: AppColors.accentViolet.withOpacity(0.9),
-              size: 22,
-            ),
-            filled: true,
-            fillColor: AppColors.cardDark,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.inputBorderDark),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.inputBorderDark),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(
-                color: AppColors.accentViolet,
-                width: 1.5,
-              ),
-            ),
-            errorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Colors.redAccent),
-            ),
+    return TextFormField(
+      controller: controller,
+      readOnly: readOnly,
+      onTap: onTap,
+      validator: validator,
+      keyboardType: keyboardType,
+      style: theme.textTheme.bodyLarge?.copyWith(
+        color: Colors.white,
+      ),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hintText,
+        hintStyle:
+            TextStyle(color: AppColors.unselectedDark.withOpacity(0.8)),
+        labelStyle: TextStyle(color: AppColors.unselectedDark),
+        prefixIcon: Icon(
+          icon,
+          color: AppColors.accentViolet.withOpacity(0.9),
+          size: 22,
+        ),
+        filled: true,
+        fillColor: AppColors.cardDark,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.inputBorderDark),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.inputBorderDark),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(
+            color: AppColors.accentViolet,
+            width: 1.5,
           ),
         ),
-        if (dropdownItems != null && dropdownItems.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: selectedDropdownItem,
-            decoration: const InputDecoration(
-              labelText: 'Location',
-              prefixIcon: Icon(Icons.place_outlined),
-            ),
-            items: dropdownItems.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
-            onChanged: onDropdownChanged,
-          ),
-        ],
-      ],
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.redAccent),
+        ),
+      ),
     );
   }
 }

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../data/cities.dart';
 import '../models/user_profile.dart';
 import '../services/storage_service.dart';
+import '../widgets/city_picker.dart';
 import 'chart_display_screen.dart';
 
 class EditProfileScreen extends StatefulWidget {
@@ -20,12 +22,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _phoneController = TextEditingController();
   final _dobController = TextEditingController();
   final _tobController = TextEditingController();
-  final _locationController = TextEditingController();
-  final _latController = TextEditingController();
-  final _lonController = TextEditingController();
 
   DateTime? _selectedDob;
   TimeOfDay? _selectedTob;
+  City? _selectedCity;
+  String _locationName = '';
+  double? _latitude;
+  double? _longitude;
   String _gender = '';
 
   bool _loading = true;
@@ -47,9 +50,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _phoneController.dispose();
     _dobController.dispose();
     _tobController.dispose();
-    _locationController.dispose();
-    _latController.dispose();
-    _lonController.dispose();
     super.dispose();
   }
 
@@ -89,9 +89,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _selectedTob = null;
     }
 
-    _locationController.text = profile.locationName;
-    _latController.text = profile.latitude?.toString() ?? '';
-    _lonController.text = profile.longitude?.toString() ?? '';
+    _locationName = profile.locationName;
+    _latitude = profile.latitude;
+    _longitude = profile.longitude;
+
+    if (_latitude != null && _longitude != null) {
+      final nearest = CityDatabase.nearest(_latitude!, _longitude!);
+      if (nearest != null) {
+        _selectedCity = nearest;
+        if (_locationName.isEmpty || _locationName.startsWith('Lat:')) {
+          _locationName = nearest.displayName;
+        }
+      }
+    }
 
     setState(() {
       _history = history;
@@ -146,23 +156,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return null;
   }
 
-  String? _validateLat(String? v) {
-    if (v == null || v.trim().isEmpty) return null;
-    final lat = double.tryParse(v.trim());
-    if (lat == null) return 'Enter valid latitude';
-    if (lat < -90 || lat > 90) return 'Latitude must be between -90 and 90';
-    return null;
-  }
-
-  String? _validateLon(String? v) {
-    if (v == null || v.trim().isEmpty) return null;
-    final lon = double.tryParse(v.trim());
-    if (lon == null) return 'Enter valid longitude';
-    if (lon < -180 || lon > 180)
-      return 'Longitude must be between -180 and 180';
-    return null;
-  }
-
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
     if (_gender.isEmpty) {
@@ -174,22 +167,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     setState(() => _saving = true);
 
-    final lat = _latController.text.trim().isEmpty
-        ? null
-        : double.tryParse(_latController.text.trim());
-    final lon = _lonController.text.trim().isEmpty
-        ? null
-        : double.tryParse(_lonController.text.trim());
-
     final profile = UserProfile(
       fullName: _nameController.text.trim(),
       email: _emailController.text.trim(),
       gender: _gender,
       dateOfBirth: _selectedDob,
       timeOfBirth: _tobController.text.trim(),
-      locationName: _locationController.text.trim(),
-      latitude: lat,
-      longitude: lon,
+      locationName: _locationName,
+      latitude: _latitude,
+      longitude: _longitude,
       phone: _phoneController.text.trim(),
     );
 
@@ -360,48 +346,53 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         validator: _validateTob,
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _locationController,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Birth Place (City/Country)',
-                          prefixIcon: Icon(Icons.place_outlined),
+                      CityPicker(
+                        initialCity: _selectedCity,
+                        initialText:
+                            _selectedCity == null ? _locationName : null,
+                        label: 'Birth Place',
+                        onSelected: (city) {
+                          setState(() {
+                            _selectedCity = city;
+                            _locationName = city.displayName;
+                            _latitude = city.latitude;
+                            _longitude = city.longitude;
+                          });
+                        },
+                        onCleared: () {
+                          setState(() {
+                            _selectedCity = null;
+                            _locationName = '';
+                            _latitude = null;
+                            _longitude = null;
+                          });
+                        },
+                      ),
+                      if (_selectedCity != null) ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Icon(Icons.check_circle_rounded,
+                                size: 16,
+                                color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '${_selectedCity!.latitude.toStringAsFixed(3)}°, '
+                                '${_selectedCity!.longitude.toStringAsFixed(3)}°',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontFamily: 'monospace',
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withOpacity(0.6),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _latController,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                decimal: true,
-                                signed: true,
-                              ),
-                              decoration: const InputDecoration(
-                                labelText: 'Latitude (optional)',
-                              ),
-                              validator: _validateLat,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _lonController,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                decimal: true,
-                                signed: true,
-                              ),
-                              decoration: const InputDecoration(
-                                labelText: 'Longitude (optional)',
-                              ),
-                              validator: _validateLon,
-                            ),
-                          ),
-                        ],
-                      ),
+                      ],
                       const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
