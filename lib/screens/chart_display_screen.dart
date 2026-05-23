@@ -385,6 +385,7 @@ class _ChartDisplayScreenState extends State<ChartDisplayScreen> {
           ],
           _buildPlanetDetails(),
           const SizedBox(height: 20),
+          _buildRahuKetuCard(),
           _buildDetailedPlanetPositionsSection(),
           const SizedBox(height: 20),
         ],
@@ -606,6 +607,114 @@ class _ChartDisplayScreenState extends State<ChartDisplayScreen> {
                 ),
               );
             }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRahuKetuCard() {
+    final result = _planetPositionResult;
+    if (result == null || result.planets.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    PlanetPosition? rahu;
+    PlanetPosition? ketu;
+    for (final p in result.planets) {
+      final n = p.name?.toLowerCase().trim();
+      if (n == 'rahu') rahu = p;
+      if (n == 'ketu') ketu = p;
+    }
+
+    if (rahu == null && ketu == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Rahu & Ketu (Lunar Nodes)',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (rahu != null) _buildNodeRow('Rahu', rahu),
+          if (rahu != null && ketu != null) const SizedBox(height: 12),
+          if (ketu != null) _buildNodeRow('Ketu', ketu),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNodeRow(String label, PlanetPosition planet) {
+    final sign = planet.sign;
+    final signText = sign == null
+        ? 'N/A'
+        : (sign.name ?? sign.vedicName ?? 'N/A');
+    final houseText = planet.house?.name;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  signText,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                if (houseText != null && houseText.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      houseText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
